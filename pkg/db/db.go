@@ -1,6 +1,15 @@
 package db
 
-import "sync"
+import (
+	"log"
+	"sync"
+	"time"
+)
+
+const (
+	bufferSize = 100
+	rpcTimeout = 100 * time.Millisecond
+)
 
 type response struct {
 	pid int
@@ -20,7 +29,6 @@ type DB struct {
 	mu      sync.RWMutex
 	store   map[string]interface{}
 	reqChan chan request
-	peers   map[int]*DB
 }
 
 // NewDB returns a new initialised DB.
@@ -43,4 +51,8 @@ func (db *DB) Get(key string) interface{} {
 	defer db.mu.RUnlock()
 
 	return db.store[key]
+}
+
+func (db *DB) Watch() {
+	log.Printf("%d starts broadcast", db.pid)
 }
