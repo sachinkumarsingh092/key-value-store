@@ -1,4 +1,4 @@
-.PHONY: runserver buildclient
+.PHONY: runserver buildclient clean
 
 NAME=client
 

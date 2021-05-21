@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"strings"
+
+	"github.com/gorilla/websocket"
 )
 
 // DB provides all the methods needed for storage.
@@ -17,14 +19,30 @@ type DB interface {
 
 // handler holds all http methods.
 type handler struct {
-	db DB
+	db           DB
+	notification chan notification
+	noListener   chan struct{}
+}
+
+type notification struct {
+	key   string
+	value string
 }
 
 func New(db DB) (http.Handler, error) {
 	r := http.NewServeMux()
 
-	h := &handler{db}
+	notification := make(chan notification)
+	noListener := make(chan struct{}, 1)
+	noListener <- struct{}{} // initially no one is hearing.
+
+	h := &handler{
+		db:           db,
+		notification: notification,
+		noListener:   noListener,
+	}
 	r.Handle("/db/", errorMiddleware(h.handleDB))
+	r.HandleFunc("/watch/", h.watchHandler)
 
 	return r, nil
 }
@@ -38,10 +56,16 @@ type httpError struct {
 
 // errorf constructor
 func errorf(err error, code int, msg string) error {
-	return &httpError{err: err, code: code, msg: msg}
+	return &httpError{
+		err:  err,
+		code: code,
+		msg:  msg,
+	}
 }
 
-func (e *httpError) Error() string { return fmt.Sprintf("%v: %v [%d]", e.err, e.msg, e.code) }
+func (e *httpError) Error() string {
+	return fmt.Sprintf("%v: %v [%d]", e.err, e.msg, e.code)
+}
 
 // errorMiddleware wraps a normal handler and converts errors to corresponding http status codes
 type errorMiddleware func(http.ResponseWriter, *http.Request) error
@@ -106,6 +130,15 @@ func (h *handler) setHandler(w http.ResponseWriter, r *http.Request) error {
 
 	log.Printf("Stored key:%v and value:%v in database\n", key, string(value))
 
+	select {
+	case v := <-h.noListener:
+		// No listeners. Send value back so that set can proceed.
+		h.noListener <- v
+	case h.notification <- notification{key: key, value: string(value)}:
+		// Notify watch and wait for it to process.
+		fmt.Printf("set: key : %v, val = %v\n", key, string(value))
+	}
+
 	return nil
 }
 
@@ -131,8 +164,49 @@ func (h *handler) getHandler(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// func (h *handler) watchHandler(w http.ResponseWriter, r *http.Request) {
-// }
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin:     func(r *http.Request) bool { return true },
+}
+
+func (h *handler) watchHandler(w http.ResponseWriter, r *http.Request) {
+	// upgrade this connection to a WebSocket
+	// connection
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println(err)
+	}
+	defer conn.Close()
+
+	log.Println("Client Connected")
+	err = conn.WriteMessage(1, []byte("Hi Client!"))
+	if err != nil {
+		log.Println(err)
+	}
+
+	// Empty the nolistener channel
+	<-h.noListener
+	defer func() {
+		// When watch returns, unblock calls to another
+		// listerers or clients.
+		h.noListener <- struct{}{}
+	}()
+
+	for {
+		notification := <-h.notification
+		// listen indefinitely for new messages coming
+		// through on our WebSocket connection
+		// read in a message
+
+		msg := fmt.Sprintf("watch: key = %v, val = %v", notification.key, notification.value)
+		err = conn.WriteMessage(1, []byte(msg))
+		if err != nil {
+			log.Println(err)
+		}
+
+	}
+}
 
 func getKey(s string) (string, error) {
 	key := strings.TrimPrefix(s, "/db/")

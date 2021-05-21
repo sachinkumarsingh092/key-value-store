@@ -8,10 +8,17 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/gorilla/websocket"
 )
 
-func get(baseURL string, key string) []byte {
-	url := baseURL + key
+const (
+	baseHttpURL = "http://localhost:8080/db/"
+	baseWsURL   = "ws://localhost:8080/watch/"
+)
+
+func get(baseHttpURL string, key string) string {
+	url := baseHttpURL + key
 
 	// make a get request.
 	res, err := http.Get(url)
@@ -27,11 +34,11 @@ func get(baseURL string, key string) []byte {
 
 	res.Body.Close()
 
-	return data
+	return string(data)
 }
 
-func set(baseURL string, key string, val string) {
-	url := baseURL + key
+func set(baseHttpURL string, key string, val string) {
+	url := baseHttpURL + key
 
 	// request body (payload)
 	requestBody := strings.NewReader(val)
@@ -49,22 +56,51 @@ func set(baseURL string, key string, val string) {
 	}
 }
 
-func main() {
-	baseURL := "http://localhost:8080/db/"
+func watch() {
+	c, _, err := websocket.DefaultDialer.Dial(baseWsURL, nil)
+	if err != nil {
+		log.Print(err)
+	}
+	defer c.Close()
 
-	getKey := flag.String("GET", "", "Usage: --GET <key> ")
-	setKey := flag.String("SET", "", "Usage: --SET <key> <val>")
+	// Empty the nolistener channel
+	// <-kv.noListener
+	// defer func() {
+	// 	// When watch returns, unblock calls to another
+	// 	// listerers or clients.
+	// 	kv.noListener <- struct{}{}
+	// }()
+
+	for {
+		// receive message
+		_, message, err := c.ReadMessage()
+		if err != nil {
+			log.Print(err)
+		}
+
+		log.Printf("Message from websocket: %v\n", string(message))
+	}
+}
+
+func main() {
+	getKey := flag.String("GET", "", "Usage: -GET <key> ")
+	setKey := flag.String("SET", "", "Usage: -SET <key> <val>")
+	watchflag := flag.Bool("WATCH", false, "Usage: -WATCH")
 	flag.Parse()
 
 	setValue := flag.Args()
 
 	switch os.Args[1] {
-	case "--GET":
-		value := string(get(baseURL, *getKey))
+	case "-GET":
+		value := get(baseHttpURL, *getKey)
 		fmt.Printf("getKey = %v getval = %v\n", *getKey, value)
-	case "--SET":
-		set(baseURL, *setKey, setValue[0])
+	case "-SET":
+		set(baseHttpURL, *setKey, setValue[0])
 		fmt.Printf("setkey = %v, setvalue = %v\n", *setKey, setValue[0])
+	case "-WATCH":
+		if *watchflag {
+			watch()
+		}
 	}
 
 }
