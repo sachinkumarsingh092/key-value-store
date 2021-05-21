@@ -15,6 +15,7 @@ import (
 type DB interface {
 	Set(string, interface{})
 	Get(string) interface{}
+	IsUpdated(string) bool
 }
 
 // handler holds all http methods.
@@ -26,7 +27,7 @@ type handler struct {
 
 type notification struct {
 	key   string
-	value string
+	value interface{}
 }
 
 func New(db DB) (http.Handler, error) {
@@ -125,18 +126,20 @@ func (h *handler) setHandler(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	h.db.Set(key, string(value))
+	stringValue := string(value)
+
+	h.db.Set(key, stringValue)
 	w.WriteHeader(http.StatusCreated)
 
-	log.Printf("Stored key:%v and value:%v in database\n", key, string(value))
+	log.Printf("Stored key:%v and value:%v in database\n", key, stringValue)
 
 	select {
 	case v := <-h.noListener:
 		// No listeners. Send value back so that set can proceed.
 		h.noListener <- v
-	case h.notification <- notification{key: key, value: string(value)}:
+	case h.notification <- notification{key: key, value: stringValue}:
 		// Notify watch and wait for it to process.
-		fmt.Printf("set: key : %v, val = %v\n", key, string(value))
+		fmt.Printf("set: key : %v, val = %v\n", key, stringValue)
 	}
 
 	return nil
@@ -200,9 +203,14 @@ func (h *handler) watchHandler(w http.ResponseWriter, r *http.Request) {
 		// read in a message
 
 		msg := fmt.Sprintf("watch: key = %v, val = %v", notification.key, notification.value)
+		if h.db.IsUpdated(notification.key) {
+			updt := fmt.Sprintf("Updating %v to value = %v", notification.key, notification.value)
+			conn.WriteMessage(1, []byte(updt))
+		}
+
 		err = conn.WriteMessage(1, []byte(msg))
 		if err != nil {
-			log.Println(err)
+			log.Print(err)
 		}
 
 	}

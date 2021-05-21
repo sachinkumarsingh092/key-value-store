@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -63,14 +62,6 @@ func watch() {
 	}
 	defer c.Close()
 
-	// Empty the nolistener channel
-	// <-kv.noListener
-	// defer func() {
-	// 	// When watch returns, unblock calls to another
-	// 	// listerers or clients.
-	// 	kv.noListener <- struct{}{}
-	// }()
-
 	for {
 		// receive message
 		_, message, err := c.ReadMessage()
@@ -93,10 +84,10 @@ func main() {
 	switch os.Args[1] {
 	case "-GET":
 		value := get(baseHttpURL, *getKey)
-		fmt.Printf("getKey = %v getval = %v\n", *getKey, value)
+		log.Printf("getKey = %v getval = %v\n", *getKey, value)
 	case "-SET":
 		set(baseHttpURL, *setKey, setValue[0])
-		fmt.Printf("setkey = %v, setvalue = %v\n", *setKey, setValue[0])
+		log.Printf("setkey = %v, setvalue = %v\n", *setKey, setValue[0])
 	case "-WATCH":
 		if *watchflag {
 			watch()

@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	db := db.NewDB(1)
+	db := db.NewDB()
 
 	h, err := handler.New(db)
 	if err != nil {
